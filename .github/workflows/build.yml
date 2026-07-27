@@ -1,0 +1,39 @@
+name: Build
+on: [workflow_dispatch]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup
+      run: |
+        git clone --depth 1 https://github.com/theos/theos.git ~/theos
+        echo "THEOS=~/theos" >> $GITHUB_ENV
+        # Tự động lấy SDK mới nhất từ Theos bằng git (Thay cho link chết)
+        cd ~/theos/sdks
+        git clone --depth 1 https://github.com/theos/sdks.git .
+    - name: Build
+      run: |
+        mkdir tweak && cd tweak
+        cat > Makefile << 'EOF'
+        TARGET := iphone:clang:latest:7.0
+        include $(THEOS)/makefiles/common.mk
+        LIBRARY_NAME = pubgmod
+        pubgmod_FILES = Tweak.xm
+        pubgmod_CFLAGS = -fobjc-arc
+        include $(THEOS_MAKE_PATH)/library.mk
+        EOF
+        cat > Tweak.xm << 'EOF'
+        #import <substrate.h>
+        void (*orig)(void *, SEL, float, float, float, float);
+        void hook(void *s, SEL c, float r, float g, float b, float a) { orig(s,c,1,1,1,1); }
+        %ctor { MSHookMessageEx(objc_getClass("UnityEngine.Material"), @selector(SetColor:), (IMP)&hook, (IMP*)&orig); }
+        EOF
+        make
+        make package
+        # Sửa đường dẫn tìm file dylib để chắc chắn tìm thấy
+        find .theos/obj/iphoneos/ -name "*.dylib" -exec cp {} ../pubgmod.dylib \;
+    - uses: actions/upload-artifact@v4
+      with:
+        name: dylib
+        path: pubgmod.dylib
